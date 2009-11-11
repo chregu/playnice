@@ -101,4 +101,12 @@ $google->updateLatitude($iphoneLocation->latitude, $iphoneLocation->longitude,
 			$iphoneLocation->accuracy);
 
 // All done.
+
+if(isset($argv[1])) {
+    echo "Trying to include ".$argv[1].".php\n";;
+    if (file_exists($argv[1].".php")) {
+        include($argv[1].".php");
+    }
+}
+
 echo "Done!\n";
