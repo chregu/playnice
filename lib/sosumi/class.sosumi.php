@@ -16,7 +16,7 @@
 
     class Sosumi
     {
-	public $authenticated; // True if we logged in successfully
+        public $authenticated; // True if we logged in successfully
         public $devices;   // An array of all devices on this MobileMe account
         private $lastURL;  // The previous URL as visited by curl
         private $tmpFile;  // Where we store our cookies
@@ -25,7 +25,7 @@
 
         public function __construct($mobile_me_username, $mobile_me_password)
         {
-	    $this->authenticated = false;
+            $this->authenticated = false;
             $this->tmpFile = tempnam('/tmp', 'sosumi');
             $this->lsc     = array();
             $this->devices = array();
@@ -50,11 +50,11 @@
             $headers = array('X-Mobileme-Version: 1.0');
             $html = $this->curlGet('https://secure.me.com/wo/WebObjects/Account2.woa?lang=en&anchor=findmyiphone', $this->lastURL, $headers);
 
-	    if (count ($this->lsc) > 0) {
-		$this->authenticated = true;
-		$this->getDevices();
-	    }
-	}
+            if (count ($this->lsc) > 0) {
+                $this->authenticated = true;
+                $this->getDevices();
+            }
+        }
 
         public function __destruct()
         {
@@ -97,8 +97,8 @@
                              'Content-Type: application/json; charset=UTF-8',
                              'X-Mobileme-Version: 1.0',
                              'X-Mobileme-Isc: ' . $this->lsc['secure.me.com']);
-            $html = $this->curlPost('https://secure.me.com/wo/WebObjects/DeviceMgmt.woa/wa/LocateAction/locateStatus', $post, 'https://secure.me.com/account/', $headers);
-            $json = json_decode(array_pop(explode("\n", $html)));
+            $html = $this->curlPost('https://secure.me.com/wo/WebObjects/DeviceMgmt.woa/wa/LocateAction/locateStatus', $post, 'https://secure.me.com/account/', $headers, false);
+            $json = json_decode($html);
             return $json;
         }
 
@@ -201,7 +201,7 @@
             return $html;
         }
 
-        private function curlPost($url, $post_vars = null, $referer = null, $headers = null)
+        private function curlPost($url, $post_vars = null, $referer = null, $headers = null, $return_headers = true)
         {
             if(is_null($post_vars))
                 $post_vars = '';
@@ -219,7 +219,7 @@
             curl_setopt($ch, CURLOPT_POSTFIELDS, $post_vars);
             if(!is_null($headers)) curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
-            curl_setopt($ch, CURLOPT_HEADER, true);
+            if($return_headers) curl_setopt($ch, CURLOPT_HEADER, true);
             // curl_setopt($ch, CURLOPT_VERBOSE, true);
 
             $html = curl_exec($ch);
@@ -243,3 +243,4 @@
             return preg_match($regex, $str, $match) == 1 ? $match[$i] : false;
         }
     }
+?>

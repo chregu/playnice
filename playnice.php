@@ -14,91 +14,146 @@
 // MIT license.
 //
 
-include 'class.google.php';
-include 'class.sosumi.php';
+define("MIN_INTERVAL", 10); // minimal interval in minutes
+define("MAX_INTERVAL", 90); // maximum interval in minutes
+define("POLLS_BEFORE_MAX", 5); // take this many polls to reach the max polling interval
 
-$mobileMePasswordFile = "./mobile-me-password.txt";
+define("BASE_PATH", dirname(__FILE__));
 
-$google = new googleLatitude();
+include_once(BASE_PATH . "/lib/distance.php");
+include_once(BASE_PATH . "/lib/class.google.php");
+include_once(BASE_PATH . "/lib/sosumi/class.sosumi.php");
 
-function promptForLogin($serviceName)
+// Generate paths to store information
+$statusFile = BASE_PATH . "/status.txt";
+$googlePasswordFile = BASE_PATH . "/google-password.txt";
+$mobileMePasswordFile = BASE_PATH . "/mobile-me-password.txt";
+$logFile = BASE_PATH . "/log.txt";
+
+// Check the status to see if we should wait to run again
+if (file_exists($statusFile))
 {
-    echo "$serviceName username: ";
-    $username = trim(fgets(STDIN));
+	$data = file_get_contents($statusFile);
+	if ($data == false) die("Error obtaining status from '$statusFile'");
 
-    if (empty($username)) {
-	die("Error: No username specified.\n");
-    }
+	$status = unserialize($data);
 
-    echo "$serviceName password: ";
-    system ('stty -echo');
-    $password = trim(fgets(STDIN));
-    system ('stty echo');
-    // add a new line since the users CR didn't echo
-    echo "\n";
+	// calculate the delay multiplier
+	$delay_multiplier = ($status["count"] > POLLS_BEFORE_MAX ? POLLS_BEFORE_MAX : $status["count"]);
 
-    if (empty ($password)) {
-	die ("Error: No password specified.\n");
-    }
+	// wait the minimal ammount of time
+	$wait_until = $status["last_updated"] + (MIN_INTERVAL * 60);
 
-    return array ($username, $password);
+	// add additional wait time for each time the device did not move
+	$wait_until += ((MAX_INTERVAL * 60) - (MIN_INTERVAL * 60)) * ($delay_multiplier / POLLS_BEFORE_MAX);
+
+	// check to see if we should wait to poll the device
+	if ($wait_until > time())
+	{
+		echo "Waiting for " . ($wait_until - time()) . " more seconds\n";
+		exit();
+	}
+}
+else
+{
+	// create status array
+	$status = array("count" => 0);
 }
 
-if (! file_exists ($mobileMePasswordFile)) {
-    echo "You will need to type your MobileMe username/password. They will be\n";
-    echo "saved in $mobileMePasswordFile so you don't have to type them again.\n";
-    echo "If you're not cool with this, you probably want to delete that file\n";
-    echo "at some point (they are stored in plaintext).\n\n";
-    echo "You do need a working MobileMe account for playnice to work, and you\n";
-    echo "need to have enabled the Find My iPhone feature on your phone.\n\n";
-    
+// Login to Google
+$google = new googleLatitude();
+@include($googlePasswordFile);
+while ((file_exists($googlePasswordFile) == false) || ($google->login($googleUsername, $googlePassword) == false))
+{
+    promptForLogin("Google", $googlePasswordFile, "google");
+    @include($googlePasswordFile);
+}
 
-    list($mobileMeUsername, $mobileMePassword) = promptForLogin("MobileMe");
+// Login to MobileMe
+do
+{
+	if (file_exists($mobileMePasswordFile) == false)
+	{
+		promptForLogin("MobileMe", $mobileMePasswordFile, "mobileMe");
+	}
 
-    $f = fopen ($mobileMePasswordFile, "w");
-    fwrite ($f, "<?php\n\$mobileMeUsername=\"$mobileMeUsername\";\n\$mobileMePassword=\"$mobileMePassword\";\n?>\n");
-    fclose ($f);
-    chmod($mobileMePasswordFile, 0600);
-
-    echo "\n";
-
-} else {
     @include($mobileMePasswordFile);
-}
 
-if (! $google->haveCookie()) {
-    echo "No Google cookie found. You will need to authenticate with your\n";
-    echo "Google username/password. You should only need to do this once;\n";
-    echo "we will save the session cookie for the future.\n\n";
+	$mobileMe = new Sosumi($mobileMeUsername, $mobileMePassword);
 
-    list($username, $password) = promptForLogin("Google");
-
-    echo "Acquiring Google session cookie...";
-    $google->login($username, $password);
-    echo "got it.\n";
-}
+	if ($mobileMe->authenticated == false)
+	{
+		unlink($mobileMePasswordFile);
+	}
+} while ($mobileMe->authenticated == false);
 
 // Get the iPhone location from MobileMe
 echo "Fetching iPhone location...";
-$mobileMe = new Sosumi ($mobileMeUsername, $mobileMePassword);
-if (! $mobileMe->authenticated) {
-    echo "Unable to authenticate to MobileMe. Is your password correct?\n";
-    exit;
-}
 
 if (count ($mobileMe->devices) == 0) {
     echo "No iPhones found in your MobileMe account.\n";
     exit;
 }
-$iphoneLocation = $mobileMe->locate();
-echo "got it.\n";
 
-echo "iPhone location: $iphoneLocation->latitude, $iphoneLocation->longitude\n";
+
+$time = time();
+$try = 0;
+do
+{
+    $try++;
+
+	// Backoff if this is not our first attempt
+    if ($try > 1) sleep($try * 10);
+
+	// Locate the device
+    $iphoneLocation = $mobileMe->locate();
+
+	// Verify we got a location back
+    if ((empty($iphoneLocation->latitude)) || (empty($iphoneLocation->longitude)))
+    {
+        echo "Error obtaining location\n";
+        exit();
+    }
+
+	// Convert the datetime to a unix timestamp
+    $timestamp = strtotime($iphoneLocation->date . " " . $iphoneLocation->time);
+
+    if ($timestamp == false)
+    {
+        echo "Error parsing last update time from MobileMe\n";
+        exit();
+    }
+
+} while (($timestamp < ($time - (60 * 2))) && ($try <= 6));
+
+echo "got it.\n";
+echo "iPhone location: $iphoneLocation->latitude, $iphoneLocation->longitude as of: $iphoneLocation->date $iphoneLocation->time\n";
+
+// Log the location
+file_put_contents($logFile, date("Y-m-d G:i:s T", $timestamp) . ": $iphoneLocation->latitude, $iphoneLocation->longitude, $iphoneLocation->accuracy\n", FILE_APPEND);
+
+// Calculate how far the device has moved (if we know the pervious location)
+if ((isset($status["lat"])) && (isset($status["lon"])) && (isset($status["accuracy"])))
+{
+	$distance = distance($status["lat"], $status["lon"], $status["accuracy"], $iphoneLocation->latitude, $iphoneLocation->longitude, $iphoneLocation->accuracy);
+	echo "Device has moved: $distance km\n";
+
+	// Update the has not moved count if the device has not moved
+	if ($distance == 0)
+		$status["count"]++;
+}
 
 // Now update Google Latitude
 echo "Updating Google Latitude...";
-$google->updateLatitude($iphoneLocation->latitude, $iphoneLocation->longitude,
-			$iphoneLocation->accuracy);
+$google->updateLatitude($iphoneLocation->latitude, $iphoneLocation->longitude, $iphoneLocation->accuracy);
+
+// Update status
+$status["last_updated"] = time();
+$status["lat"] = $iphoneLocation->latitude;
+$status["lon"] = $iphoneLocation->longitude;
+$status["accuracy"] = $iphoneLocation->accuracy;
+
+file_put_contents($statusFile, serialize($status));
 
 // All done.
 
@@ -110,3 +165,42 @@ if(isset($argv[1])) {
 }
 
 echo "Done!\n";
+
+
+
+function promptForLogin($serviceName, $passwordFile, $variablePrefix)
+{
+	echo "\n";
+    echo "You will need to type your $serviceName username/password. Because this\n";
+    echo "is the first time you are running this script, or because authentication\n";
+    echo "has failed.\n\n";
+    echo "NOTE: They will be saved in $passwordFile so you don't have to type them again.\n";
+    echo "If you're not cool with this, you probably want to delete that file\n";
+    echo "at some point (they are stored in plaintext).\n\n";
+
+    echo "$serviceName username: ";
+    $username = trim(fgets(STDIN));
+
+    if (empty($username)) {
+		die("Error: No username specified.\n");
+    }
+
+    echo "$serviceName password: ";
+    system ('stty -echo');
+    $password = trim(fgets(STDIN));
+    system ('stty echo');
+    // add a new line since the users CR didn't echo
+    echo "\n";
+
+    if (empty ($password)) {
+		die ("Error: No password specified.\n");
+    }
+
+	if (!file_put_contents($passwordFile, "<?php\n\$" . $variablePrefix . "Username=\"$username\";\n\$" . $variablePrefix . "Password=\"$password\";\n?>\n")) {
+		echo "Unable to save $serviceName credentials to $passwordFile, please check permissions.\n";
+		exit;
+	}
+
+    // change the permissions of the password file
+	chmod($passwordFile, 0600);
+}
