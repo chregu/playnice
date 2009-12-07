@@ -14,8 +14,8 @@
 // MIT license.
 //
 
-define("MIN_INTERVAL", 10); // minimal interval in minutes
-define("MAX_INTERVAL", 90); // maximum interval in minutes
+define("MIN_INTERVAL", 9); // minimal interval in minutes
+define("MAX_INTERVAL", 29); // maximum interval in minutes
 define("POLLS_BEFORE_MAX", 5); // take this many polls to reach the max polling interval
 
 define("BASE_PATH", dirname(__FILE__));
