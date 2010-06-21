@@ -19,7 +19,8 @@
 		$dt = date('Y-m-d H:i:s', strtotime($loc->date . ' ' . $loc->time));
 		$lat = mysql_real_escape_string($iphoneLocation->latitude, $db);
 		$lng = mysql_real_escape_string($iphoneLocation->longitude, $db);
+		$acc = mysql_real_escape_string($iphoneLocation->accuracy, $db);
 
-		$query = "INSERT INTO history (`dt`, `lat`, `lng`) VALUES ('$dt', '$lat', '$lng')";
+		$query = "INSERT INTO history (`dt`, `lat`, `lng`,`accuracy`) VALUES ('$dt', '$lat', '$lng','$acc')";
 		mysql_query($query, $db) or die(mysql_error());
 	}
