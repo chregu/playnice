@@ -13,8 +13,8 @@
 // MIT license.
 //
 
-define("MIN_INTERVAL", 10); // minimal interval in minutes
-define("MAX_INTERVAL", 90); // maximum interval in minutes
+define("MIN_INTERVAL", 120); // minimal interval in minutes
+define("MAX_INTERVAL", 180); // maximum interval in minutes
 define("POLLS_BEFORE_MAX", 5); // take this many polls to reach the max polling interval
 
 define("BASE_PATH", dirname(__FILE__));
@@ -41,7 +41,7 @@ $playnice->googleLogin(BASE_PATH . "/google-password.txt");
 $playnice->mobilemeLogin(BASE_PATH . "/mobile-me-password.txt");
 
 // Locate the device
-$playnice->locateDevice();
+$playnice->locateDevice(2);
 
 if(isset($argv[1])) {
     echo "Trying to include ".$argv[1].".php\n";;
